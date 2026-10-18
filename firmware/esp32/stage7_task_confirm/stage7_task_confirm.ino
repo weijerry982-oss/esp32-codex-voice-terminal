@@ -204,6 +204,7 @@ bool oledPowered = false;
 unsigned long lastActivityMs = 0;
 bool idleLedOn = false;
 unsigned long idleLedPhaseMs = 0;
+bool voiceWakeGuard = false;
 
 // ---------- OLED ----------
 
@@ -973,8 +974,14 @@ void loop() {
     return;
   }
 
-  if (digitalRead(VOICE_KEY_PIN) == LOW || digitalRead(CONFIRM_PIN) == LOW ||
-      digitalRead(CANCEL_PIN) == LOW) {
+  const bool voiceLow = digitalRead(VOICE_KEY_PIN) == LOW;
+  if (!voiceLow) {
+    voiceWakeGuard = false;
+  }
+  if (voiceLow || digitalRead(CONFIRM_PIN) == LOW || digitalRead(CANCEL_PIN) == LOW) {
+    if (!oledPowered && voiceLow) {
+      voiceWakeGuard = true;
+    }
     wakeDisplay();
   }
 
@@ -1128,6 +1135,14 @@ void loop() {
     delay(30);
     if (digitalRead(VOICE_KEY_PIN) != LOW) {
       delay(10);
+      return;
+    }
+    if (voiceWakeGuard) {
+      Serial.println("Voice: wake press ignored; release and press again to record.");
+      while (digitalRead(VOICE_KEY_PIN) == LOW) {
+        delay(10);
+      }
+      voiceWakeGuard = false;
       return;
     }
     if (taskState != TaskState::IDLE) {
