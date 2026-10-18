@@ -79,7 +79,7 @@ Content-Type: application/json
 
 请求头：`Content-Type: audio/wav`；可选 `X-Device-Id`。
 
-请求体：16 kHz、16-bit PCM、mono 或 stereo WAV；最大 512 KB（约 16 秒 mono）。
+请求体：16 kHz、16-bit PCM、mono 或 stereo WAV；最大 1 MB（20 秒 mono WAV 约 640 KB）。
 
 响应 `200`：`Content-Type: audio/wav`；响应头 `X-Transcript` 与 `X-Reply-Text` 为 URL 编码的 UTF-8 文本；响应体为 16 kHz、16-bit mono WAV。
 
@@ -146,7 +146,7 @@ PC 端测试/诊断入口，JSON：
 
 #### GET /api/v1/tasks/{id}/audio
 
-返回 TTS WAV。设备当前缓冲区上限 7 MB（PSRAM），超限或下载不完整时拒绝播放并记录串口日志。
+返回 TTS WAV。设备当前回答缓冲上限 6 MB（PSRAM），超过 20 秒录音和 640 KB WAV 缓冲后仍有约 0.8 MB 余量；超限或下载不完整时拒绝播放并记录串口日志。
 
 ## 错误响应
 

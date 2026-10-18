@@ -60,11 +60,11 @@ constexpr int OLED_PAGES = OLED_HEIGHT / 8;
 constexpr uint8_t SSD1306_ADDRESSES[] = {0x3C, 0x3D};
 
 constexpr uint32_t SAMPLE_RATE = 16000;
-constexpr size_t MAX_RECORD_SECONDS = 8;
+constexpr size_t MAX_RECORD_SECONDS = 20;
 constexpr size_t MAX_SAMPLES = SAMPLE_RATE * MAX_RECORD_SECONDS;
 constexpr size_t MIN_SAMPLES = SAMPLE_RATE / 5;
 constexpr size_t READ_CHUNK_SAMPLES = 256;
-constexpr size_t MAX_REPLY_BYTES = 7 * 1024 * 1024;
+constexpr size_t MAX_REPLY_BYTES = 6 * 1024 * 1024;
 constexpr unsigned long SERIAL_BAUD = 115200;
 constexpr unsigned long CONNECT_TIMEOUT_MS = 15000UL;
 constexpr unsigned long CONNECT_RETRY_DELAY_MS = 5000UL;
@@ -639,7 +639,7 @@ int requestTask(uint8_t *wav, size_t wavSize, String &taskId, String &body) {
   if (!http.begin(client, url)) {
     return -1;
   }
-  http.setTimeout(20000);
+  http.setTimeout(30000);
   http.addHeader("Content-Type", "audio/wav");
   http.addHeader("X-Device-Id", deviceId());
   const int code = http.POST(wav, wavSize);
@@ -943,7 +943,6 @@ void setup() {
   recordBuffer = static_cast<int16_t *>(ps_malloc(MAX_SAMPLES * sizeof(int16_t)));
   static const size_t replyCandidates[] = {
     MAX_REPLY_BYTES,
-    6 * 1024 * 1024,
     5 * 1024 * 1024,
     4 * 1024 * 1024,
     2 * 1024 * 1024,

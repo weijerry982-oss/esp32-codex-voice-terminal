@@ -38,7 +38,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "allowed_device_ips": [],
     "allow_localhost": True,
     "expected_device_id": "",
-    "audio_max_bytes": 512 * 1024,
+    "audio_max_bytes": 1024 * 1024,
     "asr_timeout_s": 30,
     "tts_timeout_s": 30,
     "whisper_model": "small",
@@ -734,7 +734,7 @@ class ServiceHandler(BaseHTTPRequestHandler):
             )
             return
 
-        max_audio_bytes = int(CONFIG.get("audio_max_bytes", 512 * 1024))
+        max_audio_bytes = int(CONFIG.get("audio_max_bytes", 1024 * 1024))
         try:
             content_length = int(self.headers.get("Content-Length", ""))
         except ValueError:
@@ -838,7 +838,7 @@ class ServiceHandler(BaseHTTPRequestHandler):
             )
             return
 
-        max_audio_bytes = int(CONFIG.get("audio_max_bytes", 512 * 1024))
+        max_audio_bytes = int(CONFIG.get("audio_max_bytes", 1024 * 1024))
         try:
             content_length = int(self.headers.get("Content-Length", ""))
         except ValueError:
