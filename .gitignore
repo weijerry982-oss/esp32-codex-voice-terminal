@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and test artifacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.local.*
+secrets.*
+
+# Arduino/ESP build artifacts
+.pio/
+.cache/
+/firmware/esp32/stage2_wifi_test/wifi_config.h
+/firmware/esp32/stage5_lan_client/lan_config.h
+/firmware/esp32/stage6_voice_loop/voice_config.h
+/firmware/esp32/stage7_task_confirm/voice_config.h
+/host/python/data/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

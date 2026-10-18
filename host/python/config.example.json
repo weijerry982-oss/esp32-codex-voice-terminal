@@ -1,0 +1,7 @@
+{
+  "bind_host": "127.0.0.1",
+  "port": 8765,
+  "allowed_device_ips": [],
+  "allow_localhost": true,
+  "expected_device_id": ""
+}
