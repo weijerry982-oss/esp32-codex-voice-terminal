@@ -74,10 +74,12 @@ constexpr unsigned long RECONNECT_INTERVAL_MS = 10000UL;
 constexpr unsigned long TASK_TTL_MS = 55000UL;
 constexpr unsigned long POLL_INTERVAL_MS = 3000UL;
 constexpr unsigned long ANSWER_SCREEN_HOLD_MS = 10000UL;
-constexpr unsigned long PROMPT_PAGE_INTERVAL_MS = 5000UL;
+constexpr unsigned long PROMPT_PAGE_INTERVAL_MS = 2000UL;
 constexpr unsigned long IDLE_SLEEP_MS = 60000UL;
 constexpr unsigned long IDLE_BLINK_INTERVAL_MS = 1000UL;
 constexpr unsigned long WAITING_UI_INTERVAL_MS = 1000UL;
+constexpr uint16_t MAX_SCREEN_PAGES = 24;
+constexpr uint16_t MAX_PROMPT_PAGES = 20;
 
 enum class TaskState : uint8_t {
   IDLE,
@@ -202,6 +204,15 @@ uint8_t promptScreen[OLED_WIDTH * OLED_PAGES];
 bool promptScreenValid = false;
 bool showingPromptPage = false;
 unsigned long lastPendingPageMs = 0;
+uint8_t promptPages[MAX_PROMPT_PAGES][OLED_WIDTH * OLED_PAGES];
+uint16_t promptPageCount = 0;
+uint16_t promptPageIndex = 0;
+bool promptPagesReady = false;
+uint8_t answerPages[MAX_SCREEN_PAGES][OLED_WIDTH * OLED_PAGES];
+uint16_t answerPageDurations[MAX_SCREEN_PAGES];
+uint16_t answerPageCount = 0;
+bool answerPagesReady = false;
+uint16_t lastAnswerPage = 0;
 bool oledPowered = false;
 unsigned long lastActivityMs = 0;
 bool idleLedOn = false;
@@ -393,6 +404,28 @@ void showPromptScreen() {
   oledDisplay();
 }
 
+void showPromptPage(uint16_t index) {
+  if (!promptPagesReady || index >= promptPageCount) {
+    return;
+  }
+  promptPageIndex = index;
+  wakeDisplay();
+  memcpy(framebuffer, promptPages[index], sizeof(framebuffer));
+  oledDisplay();
+}
+
+void showAnswerPage(uint16_t index) {
+  if (!answerPagesReady || index >= answerPageCount) {
+    return;
+  }
+  lastAnswerPage = index;
+  wakeDisplay();
+  memcpy(framebuffer, answerPages[index], sizeof(framebuffer));
+  oledDisplay();
+  memcpy(screenBackup, framebuffer, sizeof(framebuffer));
+  screenBackupValid = true;
+}
+
 void showStatus(const char *status) {
   screenBackupValid = false;
   answerScreenUntilMs = 0;
@@ -407,7 +440,10 @@ void showWaiting() {
 void restoreScreen() {
   if (taskState == TaskState::WAIT) {
     lastPendingPageMs = millis();
-    if (promptScreenValid) {
+    if (promptPagesReady) {
+      showPromptPage(promptPageIndex);
+      showingPromptPage = true;
+    } else if (promptScreenValid) {
       showPromptScreen();
       showingPromptPage = true;
     } else {
@@ -604,6 +640,8 @@ bool playWav(const uint8_t *data, size_t length) {
   const size_t frames = dataSize / (2 * channels);
   int16_t stereo[512];
   size_t frame = 0;
+  const unsigned long playbackStartMs = millis();
+  uint16_t currentAnswerPage = 0;
   while (frame < frames) {
     size_t chunkFrames = frames - frame;
     if (chunkFrames > 256) {
@@ -621,6 +659,24 @@ bool playWav(const uint8_t *data, size_t length) {
     }
     i2sSpk.write(stereo, chunkFrames * 4);
     frame += chunkFrames;
+
+    if (answerPagesReady && answerPageCount > 0) {
+      const unsigned long elapsed = millis() - playbackStartMs;
+      uint32_t accumulated = 0;
+      uint16_t pageIndex = 0;
+      while (pageIndex < answerPageCount &&
+             elapsed >= accumulated + answerPageDurations[pageIndex]) {
+        accumulated += answerPageDurations[pageIndex];
+        ++pageIndex;
+      }
+      if (pageIndex >= answerPageCount) {
+        pageIndex = answerPageCount - 1;
+      }
+      if (pageIndex != currentAnswerPage) {
+        currentAnswerPage = pageIndex;
+        showAnswerPage(pageIndex);
+      }
+    }
   }
   Serial.printf("Playback done: %u frames at %d Hz.\n", static_cast<unsigned>(frames), sampleRate);
   return true;
@@ -824,6 +880,110 @@ bool fetchTaskPrompt(const String &taskId) {
   }
   memcpy(promptScreen, framebuffer, sizeof(promptScreen));
   promptScreenValid = true;
+  return true;
+}
+
+bool readStreamExact(WiFiClient *stream, uint8_t *buffer, size_t length,
+                     unsigned long timeoutMs) {
+  size_t total = 0;
+  const unsigned long start = millis();
+  while (total < length && millis() - start < timeoutMs) {
+    const size_t available = stream->available();
+    if (available > 0) {
+      const size_t remaining = length - total;
+      const size_t chunk = available < remaining ? available : remaining;
+      total += stream->readBytes(buffer + total, chunk);
+    } else {
+      delay(1);
+    }
+  }
+  return total == length;
+}
+
+bool fetchTaskPromptPages(const String &taskId) {
+  promptPagesReady = false;
+  promptPageCount = 0;
+  WiFiClient client;
+  HTTPClient http;
+  const String url = String(SERVICE_BASE_URL) + "/api/v1/tasks/" + taskId + "/prompt-pages";
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  http.setTimeout(20000);
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+  const int contentLength = http.getSize();
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t header[2];
+  if (contentLength < 2 || !readStreamExact(stream, header, sizeof(header), 5000)) {
+    http.end();
+    return false;
+  }
+  const uint16_t count = readLe16(header);
+  if (count == 0 || count > MAX_PROMPT_PAGES ||
+      contentLength != 2 + static_cast<int>(count) * 512) {
+    http.end();
+    return false;
+  }
+  for (uint16_t page = 0; page < count; ++page) {
+    if (!readStreamExact(stream, promptPages[page], sizeof(promptPages[page]), 5000)) {
+      http.end();
+      return false;
+    }
+  }
+  http.end();
+  promptPageCount = count;
+  promptPageIndex = 0;
+  promptPagesReady = true;
+  showPromptPage(0);
+  return true;
+}
+
+bool fetchTaskScreens(const String &taskId) {
+  answerPagesReady = false;
+  answerPageCount = 0;
+  WiFiClient client;
+  HTTPClient http;
+  const String url = String(SERVICE_BASE_URL) + "/api/v1/tasks/" + taskId + "/screens";
+  if (!http.begin(client, url)) {
+    return false;
+  }
+  http.setTimeout(30000);
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return false;
+  }
+  const int contentLength = http.getSize();
+  WiFiClient *stream = http.getStreamPtr();
+  uint8_t header[2];
+  if (contentLength < 2 || !readStreamExact(stream, header, sizeof(header), 5000)) {
+    http.end();
+    return false;
+  }
+  const uint16_t count = readLe16(header);
+  if (count == 0 || count > MAX_SCREEN_PAGES ||
+      contentLength != 2 + static_cast<int>(count) * (2 + 512)) {
+    http.end();
+    return false;
+  }
+  for (uint16_t page = 0; page < count; ++page) {
+    uint8_t durationBytes[2];
+    if (!readStreamExact(stream, durationBytes, sizeof(durationBytes), 5000) ||
+        !readStreamExact(stream, answerPages[page], sizeof(answerPages[page]), 5000)) {
+      http.end();
+      return false;
+    }
+    answerPageDurations[page] = readLe16(durationBytes);
+  }
+  http.end();
+  answerPageCount = count;
+  answerPagesReady = true;
+  lastAnswerPage = 0;
+  showAnswerPage(0);
   return true;
 }
 
@@ -1057,26 +1217,38 @@ void loop() {
     return;
   }
 
-  if (taskState == TaskState::WAIT && promptScreenValid &&
+  if (taskState == TaskState::WAIT && (promptPagesReady || promptScreenValid) &&
       now - lastPendingPageMs >= PROMPT_PAGE_INTERVAL_MS) {
     lastPendingPageMs = now;
     if (showingPromptPage) {
-      showPending();
-      showingPromptPage = false;
+      if (promptPagesReady && promptPageIndex + 1 < promptPageCount) {
+        showPromptPage(promptPageIndex + 1);
+      } else {
+        showPending();
+        showingPromptPage = false;
+      }
     } else {
-      showPromptScreen();
+      if (promptPagesReady) {
+        showPromptPage(0);
+      } else {
+        showPromptScreen();
+      }
       showingPromptPage = true;
     }
   }
 
   if (taskState == TaskState::WAIT) {
     if (updateButton(confirmButton, now)) {
-      if (!promptScreenValid) {
+      if (!promptPagesReady && !promptScreenValid) {
         drawLines("TASK " + pendingTaskId, "NO SUMMARY", "40=CANCEL");
         return;
       }
       if (!showingPromptPage) {
-        showPromptScreen();
+        if (promptPagesReady) {
+          showPromptPage(promptPageIndex);
+        } else {
+          showPromptScreen();
+        }
         showingPromptPage = true;
         lastPendingPageMs = now;
         return;
@@ -1129,21 +1301,24 @@ void loop() {
       Serial.printf("Poll body: %s\n", body.c_str());
     } else if (status == "done") {
       taskState = TaskState::DONE;
-      if (fetchTaskScreen(pendingTaskId)) {
+      answerPagesReady = false;
+      if (fetchTaskScreens(pendingTaskId)) {
+        Serial.println("Answer pages displayed.");
+      } else if (fetchTaskScreen(pendingTaskId)) {
         Serial.println("Answer screen displayed.");
       } else {
         showStatus("DONE");
       }
-      answerScreenUntilMs = millis() + ANSWER_SCREEN_HOLD_MS;
       Serial.printf("Task result: %s\n", body.c_str());
       if (fetchAndPlayTaskAudio(pendingTaskId)) {
         Serial.println("Task result audio played.");
       } else {
         Serial.println("Task result audio unavailable.");
       }
+      answerScreenUntilMs = millis() + ANSWER_SCREEN_HOLD_MS;
       pendingTaskId = "";
       taskState = TaskState::IDLE;
-      // Keep the answer screen for ANSWER_SCREEN_HOLD_MS, then return to idle.
+      // Keep the last answer page for ANSWER_SCREEN_HOLD_MS, then return to idle.
       return;
     } else if (status == "error") {
       taskState = TaskState::ERROR;
@@ -1209,14 +1384,19 @@ void loop() {
             taskCreated = true;
             taskCreatedMs = millis();
             promptScreenValid = false;
+            promptPagesReady = false;
+            answerPagesReady = false;
             showingPromptPage = false;
             screenBackupValid = false;
-            if (fetchTaskPrompt(taskId)) {
+            if (fetchTaskPromptPages(taskId)) {
+              showingPromptPage = true;
+              Serial.println("Task transcript pages displayed.");
+            } else if (fetchTaskPrompt(taskId)) {
               showingPromptPage = true;
               Serial.println("Task summary screen displayed.");
             } else {
               showPending();
-              Serial.println("Task summary unavailable; showing task ID.");
+              Serial.println("Task transcript unavailable; showing task ID.");
             }
             lastPendingPageMs = millis();
             Serial.printf("Pending task %s; confirm on GPIO%d or cancel on GPIO%d.\n",

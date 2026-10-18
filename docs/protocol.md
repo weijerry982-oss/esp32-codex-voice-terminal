@@ -142,7 +142,15 @@ PC 端测试/诊断入口，JSON：
 
 #### GET /api/v1/tasks/{id}/screen
 
-返回 512 字节的回答位图（ChatGPT 回答摘要），供 OLED 显示。
+返回 512 字节的回答位图（单页，兼容旧设备/回退）。
+
+#### GET /api/v1/tasks/{id}/screens
+
+返回分页回答位图：`uint16` 小端页数，随后每页 `uint16` 小端时长（毫秒）+ 512 字节位图。设备按每页时长随 TTS 播放切换；失败时回退 `/screen`。
+
+#### GET /api/v1/tasks/{id}/prompt-pages
+
+返回分页录音文字：`uint16` 小端页数，随后 N×512 字节位图（每页约 20 字）。设备在确认前轮播，并与任务 ID/按键提示页交替；失败时回退 `/prompt`。
 
 #### GET /api/v1/tasks/{id}/audio
 

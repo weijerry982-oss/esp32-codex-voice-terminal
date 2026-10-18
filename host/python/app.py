@@ -64,6 +64,7 @@ CHATGPT_SET_DRAFT = BASE_DIR / "chatgpt_set_draft.ps1"
 CHATGPT_CLEAR_DRAFT = BASE_DIR / "chatgpt_clear_draft.ps1"
 CHATGPT_SEND_CAPTURE = BASE_DIR / "chatgpt_send_capture.ps1"
 RENDER_OLED = BASE_DIR / "render_oled.ps1"
+RENDER_OLED_PAGES = BASE_DIR / "render_oled_pages.ps1"
 
 WHISPER_MODEL: Any = None
 WHISPER_LOCK = threading.Lock()
@@ -515,6 +516,67 @@ def run_codex_task(task_id: str) -> None:
         logging.warning("interactive codex task=%s failed: %s", task_id, error)
 
 
+def wav_duration_ms(path: Path) -> int:
+    try:
+        with wave.open(str(path), "rb") as handle:
+            sample_rate = handle.getframerate()
+            if sample_rate <= 0:
+                return 0
+            return int(round(1000 * handle.getnframes() / sample_rate))
+    except Exception:  # noqa: BLE001 - duration is optional
+        return 0
+
+
+def render_page_bitmaps(text: str, raw_path: Path) -> int:
+    run_powershell(RENDER_OLED_PAGES, [text, str(raw_path), "20"], 30)
+    data = raw_path.read_bytes()
+    if not data or len(data) % 512 != 0:
+        raise RuntimeError("invalid_page_bitmaps")
+    count = len(data) // 512
+    if count <= 0 or count > 24:
+        raise RuntimeError("page_count_out_of_range")
+    return count
+
+
+def build_answer_screens(reply_text: str, audio_path: Path, out_path: Path) -> int:
+    pages = [reply_text[index:index + 20] for index in range(0, len(reply_text), 20)]
+    if not pages:
+        raise RuntimeError("empty_answer_text")
+    raw_path = out_path.with_name(out_path.stem + "_raw.bin")
+    count = render_page_bitmaps(reply_text, raw_path)
+    if count != len(pages):
+        raise RuntimeError(f"page_count_mismatch rendered={count} expected={len(pages)}")
+    raw = raw_path.read_bytes()
+    total_ms = wav_duration_ms(audio_path) if audio_path.exists() else 0
+    total_chars = sum(max(1, len(page)) for page in pages)
+    durations: list[int] = []
+    remaining = total_ms
+    for index, page in enumerate(pages):
+        if total_ms <= 0:
+            duration = 3000
+        elif index == len(pages) - 1:
+            duration = remaining
+        else:
+            duration = int(round(total_ms * len(page) / total_chars))
+        duration = max(1, min(65535, duration))
+        durations.append(duration)
+        remaining -= duration
+    data = bytearray(struct.pack("<H", len(pages)))
+    for index, duration in enumerate(durations):
+        data += struct.pack("<H", duration)
+        data += raw[index * 512:(index + 1) * 512]
+    out_path.write_bytes(data)
+    return len(pages)
+
+
+def build_prompt_pages(transcript: str, out_path: Path) -> int:
+    raw_path = out_path.with_name(out_path.stem + "_raw.bin")
+    count = render_page_bitmaps(transcript, raw_path)
+    raw = raw_path.read_bytes()
+    out_path.write_bytes(struct.pack("<H", count) + raw)
+    return count
+
+
 def run_chatgpt_task(task_id: str) -> None:
     global CURRENT_TASK_ID
     with TASKS_LOCK:
@@ -559,6 +621,16 @@ def run_chatgpt_task(task_id: str) -> None:
             logging.warning("task %s TTS failed: %s", task_id, tts_error)
         audio_ready = audio_path.exists() and audio_path.stat().st_size > 44
 
+        screens_path = DATA_DIR / f"task_{task_id}_screens.bin"
+        screens_ready = False
+        screens_pages = 0
+        if reply_text:
+            try:
+                screens_pages = build_answer_screens(reply_text, audio_path, screens_path)
+                screens_ready = True
+            except Exception as screens_error:  # noqa: BLE001 - single screen remains available
+                logging.warning("task %s OLED pages failed: %s", task_id, screens_error)
+
         with TASKS_LOCK:
             entry = TASKS.get(task_id)
             if entry is not None:
@@ -568,15 +640,18 @@ def run_chatgpt_task(task_id: str) -> None:
                 entry["reply_text"] = reply_text
                 entry["audio_path"] = str(audio_path) if audio_ready else ""
                 entry["screen_path"] = str(screen_path) if screen_ready else ""
+                entry["screens_path"] = str(screens_path) if screens_ready else ""
                 entry["finished_at"] = time.time()
                 if CURRENT_TASK_ID == task_id:
                     CURRENT_TASK_ID = None
         logging.info(
-            "chatgpt task=%s done; reply=%r audio=%s screen=%s",
+            "chatgpt task=%s done; reply=%r audio=%s screen=%s screens=%s pages=%d",
             task_id,
             reply_text,
             audio_ready,
             screen_ready,
+            screens_ready,
+            screens_pages,
         )
     except Exception as error:  # noqa: BLE001 - report to caller
         with TASKS_LOCK:
@@ -645,6 +720,14 @@ class ServiceHandler(BaseHTTPRequestHandler):
         prompt_match = re.fullmatch(r"/api/v1/tasks/(\d{6})/prompt", path)
         if prompt_match is not None:
             self.handle_task_prompt(prompt_match.group(1))
+            return
+        screens_match = re.fullmatch(r"/api/v1/tasks/(\d{6})/screens", path)
+        if screens_match is not None:
+            self.handle_task_screens(screens_match.group(1))
+            return
+        prompt_pages_match = re.fullmatch(r"/api/v1/tasks/(\d{6})/prompt-pages", path)
+        if prompt_pages_match is not None:
+            self.handle_task_prompt_pages(prompt_pages_match.group(1))
             return
         self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "not_found"})
 
@@ -1098,6 +1181,64 @@ class ServiceHandler(BaseHTTPRequestHandler):
         path = Path(prompt_path)
         if not path.exists() or path.stat().st_size != 512:
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "prompt_not_found"})
+            return
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def handle_task_screens(self, task_id: str) -> None:
+        with TASKS_LOCK:
+            expire_tasks_locked()
+            task = TASKS.get(task_id)
+            if task is None:
+                self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "task_not_found"})
+                return
+            screens_path = task.get("screens_path", "")
+        if not screens_path:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "screens_not_ready"})
+            return
+        path = Path(screens_path)
+        if not path.exists() or path.stat().st_size < 2:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "screens_not_found"})
+            return
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def handle_task_prompt_pages(self, task_id: str) -> None:
+        with TASKS_LOCK:
+            expire_tasks_locked()
+            task = TASKS.get(task_id)
+            if task is None:
+                self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "task_not_found"})
+                return
+            prompt_pages_path = task.get("prompt_pages_path", "")
+            transcript = task.get("transcript", "")
+        if not prompt_pages_path:
+            path = DATA_DIR / f"task_{task_id}_prompt_pages.bin"
+            try:
+                build_prompt_pages(transcript, path)
+            except Exception as error:  # noqa: BLE001 - device falls back to single prompt
+                logging.warning("task %s prompt pages failed: %s", task_id, error)
+                self.send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "error": "prompt_pages_failed"},
+                )
+                return
+            with TASKS_LOCK:
+                task = TASKS.get(task_id)
+                if task is not None:
+                    task["prompt_pages_path"] = str(path)
+            prompt_pages_path = str(path)
+        path = Path(prompt_pages_path)
+        if not path.exists() or path.stat().st_size < 2:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "error": "prompt_pages_not_found"})
             return
         data = path.read_bytes()
         self.send_response(HTTPStatus.OK)
