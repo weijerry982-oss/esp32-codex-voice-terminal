@@ -124,7 +124,7 @@ PC 端测试/诊断入口，JSON：
 无请求体。只有当 `id` 等于当前 pending 任务 ID 且未过期时才接受；服务端随后：
 - `read_only`：运行 `codex exec --sandbox read-only --skip-git-repo-check`，捕获输出；
 - `interactive`：打开原生 Codex TUI 窗口，保留 Codex 自身审批；
-- `task_backend=chatgpt`（默认）：把 request 阶段写入 ChatGPT 桌面输入框的草稿发送出去，捕获 ChatGPT 回答并生成 TTS 音频；cancel 清空输入框。该模式要求 ChatGPT 桌面应用已打开，服务只做 UI 文本操作，不执行 Windows 命令。
+- `task_backend=chatgpt`（默认）：把 request 阶段写入 ChatGPT 桌面输入框的草稿发送出去，捕获 ChatGPT 回答并生成 TTS 音频；cancel 清空输入框。该模式要求 ChatGPT 桌面应用已打开，服务只做 UI 文本操作，不执行 Windows 命令。ChatGPT 捕获默认等待上限 240 秒，并忽略“正在思考/正在搜索/时间戳”等临时 UI 文本，避免把占位提示当成回答。
 
 服务端不得使用 `--dangerously-bypass-approvals-and-sandbox`、`--approve-for-me` 或 `danger-full-access`。识别文本只作为 Codex prompt 或 ChatGPT 输入，不作为 Windows 命令执行。
 

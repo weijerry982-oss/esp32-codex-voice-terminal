@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$Draft,
-    [int]$TimeoutSec = 120
+    [int]$TimeoutSec = 240
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +19,18 @@ function Get-All($root) {
 $warningNeedle = [string]([char]0x53EF) + [char]0x80FD + [char]0x4F1A + [char]0x51FA + [char]0x9519
 $doneNeedle = [string]([char]0x56DE) + [char]0x7B54 + [char]0x5DF2 + [char]0x5B8C + [char]0x6210
 $latestNeedle = [string]([char]0x6700) + [char]0x65B0 + [char]0x4E00 + [char]0x6761 + [char]0x56DE + [char]0x590D
+$transientNeedles = @(
+    ([string]([char]0x6B63) + [char]0x5728 + [char]0x601D + [char]0x8003),
+    ([string]([char]0x6B63) + [char]0x5728 + [char]0x641C + [char]0x7D22),
+    ([string]([char]0x641C) + [char]0x7D22 + [char]0x4E2D),
+    ([string]([char]0x6B63) + [char]0x5728 + [char]0x751F + [char]0x6210),
+    ([string]([char]0x56DE) + [char]0x590D + [char]0x4E2D),
+    ([string]([char]0x7B49) + [char]0x5F85 + [char]0x56DE + [char]0x590D),
+    ([string]([char]0x505C) + [char]0x6B62 + [char]0x751F + [char]0x6210),
+    'Thinking',
+    'Searching',
+    'Stop generating'
+)
 
 $all = Get-All $win
 $composer = $null
@@ -83,6 +95,15 @@ while ((Get-Date) -lt $deadline) {
                 if ($name.Contains($warningNeedle)) { continue }
                 if ($name.Contains($doneNeedle)) { continue }
                 if ($name.Contains($latestNeedle)) { continue }
+                if ($name -match '^\d{1,2}:\d{2}(:\d{2})?$') { continue }
+                $isTransient = $false
+                foreach ($needle in $transientNeedles) {
+                    if ($name -eq $needle -or ($name.Length -le 20 -and $name.Contains($needle))) {
+                        $isTransient = $true
+                        break
+                    }
+                }
+                if ($isTransient) { continue }
                 $texts += $name
             }
         } catch {
@@ -90,7 +111,7 @@ while ((Get-Date) -lt $deadline) {
     }
 
     $candidate = ($texts -join "`n").Trim()
-    if ($candidate.Length -eq 0) { continue }
+    if ($candidate.Length -lt 8) { continue }
     if ($candidate -eq $lastText) {
         $stableCount++
     } else {

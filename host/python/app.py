@@ -49,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "codex_binary": "codex",
     "project_dir": "",
     "task_backend": "chatgpt",
-    "chatgpt_timeout_s": 120,
+    "chatgpt_timeout_s": 240,
 }
 
 PROTOCOL_VERSION = 1

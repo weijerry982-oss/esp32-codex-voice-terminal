@@ -76,6 +76,7 @@ constexpr unsigned long ANSWER_SCREEN_HOLD_MS = 10000UL;
 constexpr unsigned long PROMPT_PAGE_INTERVAL_MS = 5000UL;
 constexpr unsigned long IDLE_SLEEP_MS = 60000UL;
 constexpr unsigned long IDLE_BLINK_INTERVAL_MS = 1000UL;
+constexpr unsigned long WAITING_UI_INTERVAL_MS = 1000UL;
 
 enum class TaskState : uint8_t {
   IDLE,
@@ -205,6 +206,8 @@ unsigned long lastActivityMs = 0;
 bool idleLedOn = false;
 unsigned long idleLedPhaseMs = 0;
 bool voiceWakeGuard = false;
+unsigned long waitStartedMs = 0;
+unsigned long lastWaitUiMs = 0;
 
 // ---------- OLED ----------
 
@@ -386,6 +389,11 @@ void showStatus(const char *status) {
   screenBackupValid = false;
   answerScreenUntilMs = 0;
   drawLines("TASK " + pendingTaskId, status, "");
+}
+
+void showWaiting() {
+  const unsigned long seconds = (millis() - waitStartedMs) / 1000UL;
+  drawLines("TASK " + pendingTaskId, "WAITING " + String(seconds) + "S", "PLEASE WAIT");
 }
 
 void restoreScreen() {
@@ -1015,6 +1023,12 @@ void loop() {
     }
   }
 
+  if (taskState == TaskState::RUNNING &&
+      millis() - lastWaitUiMs >= WAITING_UI_INTERVAL_MS) {
+    lastWaitUiMs = millis();
+    showWaiting();
+  }
+
   if (taskState == TaskState::WAIT && now - taskCreatedMs >= TASK_TTL_MS) {
     Serial.println("Task expired before confirmation; clearing ChatGPT draft.");
     String body;
@@ -1059,7 +1073,9 @@ void loop() {
       if (code == HTTP_CODE_OK) {
         taskState = TaskState::RUNNING;
         lastPollMs = now;
-        showStatus("RUNNING");
+        waitStartedMs = millis();
+        lastWaitUiMs = waitStartedMs;
+        showWaiting();
       } else {
         taskState = TaskState::ERROR;
         showStatus("ERROR");
@@ -1127,7 +1143,7 @@ void loop() {
       clearTask();
       return;
     } else {
-      showStatus("RUNNING");
+      showWaiting();
     }
   }
 
