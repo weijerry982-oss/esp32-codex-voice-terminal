@@ -21,6 +21,7 @@
 #include <ESP_I2S.h>
 #include <Wire.h>
 #include "status_bitmaps.h"
+#include "record_countdown_bitmaps.h"
 
 #if __has_include("../stage2_wifi_test/wifi_config.h")
 #include "../stage2_wifi_test/wifi_config.h"
@@ -346,6 +347,13 @@ void showStatusBitmap(const uint8_t *bitmap) {
   oledDisplay();
 }
 
+void showRecordingCountdown(unsigned seconds) {
+  if (seconds > 20) {
+    seconds = 20;
+  }
+  showStatusBitmap(kRecordCountdown[seconds]);
+}
+
 String fittedSsidLine(const String &ssid) {
   const String value = ssid.length() > 0 ? ssid : String(WIFI_SSID);
   String line = "SSID:";
@@ -535,8 +543,17 @@ size_t buildWav(const int16_t *samples, size_t count, uint8_t *out) {
 
 size_t recordUtterance() {
   size_t total = 0;
+  unsigned long lastCountdownSec = 999;
   Serial.println("Recording... release the key to create the task.");
   while (digitalRead(VOICE_KEY_PIN) == LOW && total < MAX_SAMPLES) {
+    const unsigned long elapsedSeconds = total / SAMPLE_RATE;
+    const unsigned long remaining = elapsedSeconds >= MAX_RECORD_SECONDS
+                                        ? 0
+                                        : MAX_RECORD_SECONDS - elapsedSeconds;
+    if (remaining != lastCountdownSec) {
+      lastCountdownSec = remaining;
+      showRecordingCountdown(remaining);
+    }
     const size_t bytes = i2sMic.readBytes(reinterpret_cast<char *>(rawBuffer), sizeof(rawBuffer));
     const size_t count = bytes / sizeof(int32_t);
     for (size_t i = 0; i < count && total < MAX_SAMPLES; ++i) {
@@ -1168,7 +1185,7 @@ void loop() {
       return;
     }
 
-    showStatusBitmap(kStatusRecording);
+    showRecordingCountdown(MAX_RECORD_SECONDS);
     bool taskCreated = false;
     setLed(0, LED_BRIGHTNESS, 0);
     const size_t samples = recordUtterance();
