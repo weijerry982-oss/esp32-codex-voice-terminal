@@ -74,6 +74,8 @@ constexpr unsigned long TASK_TTL_MS = 55000UL;
 constexpr unsigned long POLL_INTERVAL_MS = 3000UL;
 constexpr unsigned long ANSWER_SCREEN_HOLD_MS = 10000UL;
 constexpr unsigned long PROMPT_PAGE_INTERVAL_MS = 5000UL;
+constexpr unsigned long IDLE_SLEEP_MS = 60000UL;
+constexpr unsigned long IDLE_BLINK_INTERVAL_MS = 1000UL;
 
 enum class TaskState : uint8_t {
   IDLE,
@@ -198,6 +200,10 @@ uint8_t promptScreen[OLED_WIDTH * OLED_PAGES];
 bool promptScreenValid = false;
 bool showingPromptPage = false;
 unsigned long lastPendingPageMs = 0;
+bool oledPowered = false;
+unsigned long lastActivityMs = 0;
+bool idleLedOn = false;
+unsigned long idleLedPhaseMs = 0;
 
 // ---------- OLED ----------
 
@@ -245,6 +251,23 @@ bool oledDisplay() {
     }
   }
   return true;
+}
+
+void oledPower(bool on) {
+  if (oledAddress == 0) {
+    return;
+  }
+  const uint8_t command = on ? 0xAF : 0xAE;
+  oledWriteCommands(&command, 1);
+}
+
+void oledWake() {
+  if (oledAddress == 0 || oledPowered) {
+    return;
+  }
+  oledPower(true);
+  oledPowered = true;
+  oledDisplay();
 }
 
 void oledClear() {
@@ -296,10 +319,13 @@ void oledDrawText(const char *text, int x, int y, int scale) {
   }
 }
 
+void wakeDisplay();
+
 void drawLines(const String &line1, const String &line2, const String &line3) {
   if (oledAddress == 0) {
     return;
   }
+  wakeDisplay();
   oledClear();
   oledDrawText(line1.c_str(), 2, 2, 1);
   oledDrawText(line2.c_str(), 2, 12, 1);
@@ -311,6 +337,7 @@ void showStatusBitmap(const uint8_t *bitmap) {
   if (oledAddress == 0) {
     return;
   }
+  wakeDisplay();
   memcpy(framebuffer, bitmap, sizeof(framebuffer));
   oledDisplay();
 }
@@ -349,6 +376,7 @@ void showPromptScreen() {
     showPending();
     return;
   }
+  wakeDisplay();
   memcpy(framebuffer, promptScreen, sizeof(framebuffer));
   oledDisplay();
 }
@@ -401,6 +429,7 @@ bool oledInit() {
     return false;
   }
   oledClear();
+  oledPowered = true;
   return oledDisplay();
 }
 
@@ -719,6 +748,7 @@ bool fetchTaskScreen(const String &taskId) {
   if (total != sizeof(framebuffer)) {
     return false;
   }
+  wakeDisplay();
   if (!oledDisplay()) {
     return false;
   }
@@ -762,6 +792,7 @@ bool fetchTaskPrompt(const String &taskId) {
   if (total != sizeof(framebuffer)) {
     return false;
   }
+  wakeDisplay();
   if (!oledDisplay()) {
     return false;
   }
@@ -791,6 +822,31 @@ void clearTask() {
 
 void setLed(uint8_t red, uint8_t green, uint8_t blue) {
   rgbLedWrite(RGB_LED_PIN, red, green, blue);
+}
+
+void wakeDisplay() {
+  const bool wasAsleep = !oledPowered;
+  oledWake();
+  lastActivityMs = millis();
+  if (idleLedOn) {
+    idleLedOn = false;
+    setLed(0, 0, 0);
+  }
+  if (wasAsleep) {
+    Serial.println("Display: wake.");
+  }
+}
+
+void sleepDisplay() {
+  if (!oledPowered) {
+    return;
+  }
+  oledPower(false);
+  oledPowered = false;
+  idleLedOn = true;
+  idleLedPhaseMs = millis();
+  setLed(0, LED_BRIGHTNESS, 0);
+  Serial.println("Display: idle sleep; green LED blinks every 1 s.");
 }
 
 void blinkLed(uint8_t red, uint8_t green, uint8_t blue, uint8_t times,
@@ -917,6 +973,11 @@ void loop() {
     return;
   }
 
+  if (digitalRead(VOICE_KEY_PIN) == LOW || digitalRead(CONFIRM_PIN) == LOW ||
+      digitalRead(CANCEL_PIN) == LOW) {
+    wakeDisplay();
+  }
+
   const unsigned long now = millis();
   if (WiFi.status() != WL_CONNECTED && now - lastConnectAttemptMs >= RECONNECT_INTERVAL_MS) {
     lastConnectAttemptMs = now;
@@ -931,6 +992,20 @@ void loop() {
       answerScreenUntilMs != 0 &&
       static_cast<long>(millis() - answerScreenUntilMs) >= 0) {
     showIdle();
+  }
+
+  if (taskState == TaskState::IDLE && WiFi.status() == WL_CONNECTED &&
+      oledPowered && answerScreenUntilMs == 0 &&
+      millis() - lastActivityMs >= IDLE_SLEEP_MS) {
+    sleepDisplay();
+  }
+
+  if (!oledPowered && taskState == TaskState::IDLE) {
+    if (millis() - idleLedPhaseMs >= IDLE_BLINK_INTERVAL_MS) {
+      idleLedPhaseMs = millis();
+      idleLedOn = !idleLedOn;
+      setLed(0, idleLedOn ? LED_BRIGHTNESS : 0, 0);
+    }
   }
 
   if (taskState == TaskState::WAIT && now - taskCreatedMs >= TASK_TTL_MS) {
