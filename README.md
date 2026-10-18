@@ -135,3 +135,41 @@ $build = Join-Path $env:TEMP 'esp32-stage6-voice-build'
 视觉反馈：录音期间 RGB 绿灯；GPIO39 SEND 绿闪 2 次（0.5 秒）；GPIO40 CLEAR 黄闪 2 次（0.5 秒）。ChatGPT 回答由 `render_oled.ps1` 渲染为 128×32 位图并显示在 OLED 上；task `529388`/`604133` 已实测显示回答并播放 TTS。
 
 Codex CLI 替代流程仍可用（read-only `codex exec --sandbox read-only`；交互式 TUI 启动验证但模型请求超时）。已知限制：ChatGPT UIA 依赖 Chromium/Electron 可访问性，应用更新可能导致脚本失效；TTS 截断 400 字符。
+
+## 阶段 8：整机联调与故障恢复（进行中）
+
+阶段 8 继续使用 `firmware/esp32/stage7_task_confirm/`。完整流程为：GPIO0 按住录音 → 松开上传并由本地 Whisper 识别 → 服务端写入 ChatGPT 草稿并生成任务摘要位图 → OLED 交替显示任务摘要和 `TASK <id> / 39=SEND 40=CLEAR` → GPIO39 确认发送 → ChatGPT 回答显示在 OLED 并播放 TTS → GPIO40 取消。
+
+已实现并烧录：
+
+- Wi-Fi 状态页：`WIFI CONNECT` / `WIFI OK` / `WIFI LOST`，显示实际 SSID 和 IP；待机页第三行显示 SSID；运行中掉线后自动重连。
+- 中文按钮状态：GPIO0 按住显示“正在录音”、松开显示“正在上传”；GPIO39“正在发送”；GPIO40“正在取消发送”。
+- 确认前任务摘要：`GET /api/v1/tasks/{id}/prompt` 返回 128×32 位图（任务 ID + 转录摘要）。摘要不可用时禁止 GPIO39 确认；当前显示按键提示页时，第一次按 GPIO39 只切换到摘要页，第二次才发送。
+- 回答屏保留 10 秒；TTS 超过 10 秒时在播放结束后回待机。
+- 回答音频接收缓冲提高到 7 MB（PSRAM 安全上限，带 6/5/4/2 MB 回退），下载超时 30 秒；长回答 TTS 不再因旧 2 MB 上限被拒绝。
+- ChatGPT 应用关闭时，服务返回 `503 chatgpt_unavailable`（修复前会断开连接/HTTP 000）。
+
+已通过：
+
+- 正常端到端 task `529388` / `604133`。
+- 草稿过期 task `339638`，55 秒后自动取消并清空 ChatGPT 输入框。
+- 服务不可用：连续 `Task request HTTP -1`，设备未崩溃；服务重启后 task `604654` 完成。
+- ChatGPT 应用关闭/恢复：关闭返回 503；重开后 task `346995` 创建成功。
+- 任务摘要端点：task `782728` 返回 200、512 字节，位图预览可读。
+
+待实机验证：关闭设备使用的 2.4G Wi-Fi 约 20 秒后的 OLED 状态与恢复、长回答 TTS 重新播放、中文状态/任务摘要/二次确认的目视效果、长时间运行稳定性。
+
+```powershell
+$cli = 'C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe'
+$fqbn = 'esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi'
+$build = Join-Path $env:TEMP 'esp32-stage8-build'
+& $cli compile --fqbn $fqbn --build-path $build firmware/esp32/stage7_task_confirm
+& $cli upload -p COM6 --fqbn $fqbn --input-dir $build
+& $cli monitor -p COM6 --config baudrate=115200
+```
+
+GPIO0/BOOT 在复位或上电时必须松开，否则进入下载模式。设备语音只作为 ChatGPT/Codex 输入，不拼接为 Windows 命令。
+
+**安全边界：** 当前为明文 HTTP + 来源 IP 允许列表，没有 TLS、设备令牌或 HMAC；只适用于受信局域网，不得暴露到公网。生产加固需要 TLS（或加密隧道）和设备级认证，详见 `docs/protocol.md`。
+
+**日志：** 调试与变更记录见 `docs/debug-log.md`；Python 服务日志和任务音频位于 `host/python/data/`，已被 `.gitignore` 排除。阶段 8 通过前不标记完成。
