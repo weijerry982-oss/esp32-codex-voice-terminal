@@ -1,6 +1,6 @@
 # 开发进度与阶段验收
 
-调试与变更记录：`docs/debug-log.md`（当前工作区没有 Git 时的补充记录）。
+调试与变更记录：`docs/debug-log.md`（Git 已初始化；运行日志和本地配置仍被 `.gitignore` 排除）。
 
 当前状态：**阶段 1 已通过真实硬件验证**（COM6；ESP32-S3 QFN56 rev 0.2、双核 240 MHz、16 MB Flash、8 MB OPI PSRAM；启动横幅、`Status: RUNNING` 与持续递增运行秒数已确认）。**阶段 2 验收项已完成**：OLED 最小显示与状态集成、Wi-Fi 成功连接与失败重试上限、按键 GPIO39/40、RGB 状态灯 GPIO48 均已验证。唯一未单独实测的是“连接建立后掉线”路径；当前代码检测到掉线后会停止重试，需复位后重来。阶段 3 已通过（I2S 麦克风录音数据、采样参数和稳定性已验证）。阶段 4 已通过（MAX98357A 音调序列，用户确认听到）。阶段 5 已通过（Python 服务来源校验有效，ESP32 心跳 HTTP 200）。阶段 6 音频回环已通过：ESP32 录音→HTTP 上传→本地 faster-whisper small ASR→SAPI TTS→ESP32 播放；实机两次识别为“你好,设备测试”，ASR+TTS 约 2.1 s。GPIO0/BOOT 复位时必须松开，否则进入下载模式。阶段 7 只读流程已通过：任务 ID 绑定、60 秒过期、单一任务、来源校验；GPIO39 确认/GPIO40 取消；只读 Codex 调度与结果 TTS 回传已验证（task 659384）。交互式 Codex TUI 已实机启动（task 666000），但模型请求超时（Reconnecting/Request timed out）；原生界面已确认，执行待重试。阶段 7 主流程（ChatGPT 输入框）已通过：设备语音→Whisper→ChatGPT 草稿→GPIO39 发送→回答 TTS 播放；GPIO40 清空草稿（task 454728）。录音绿灯、SEND 绿闪 2 次、CLEAR 黄闪 2 次、ChatGPT 回答 128×32 中文位图显示到 OLED 已实现（task 529388/604133 显示回答并播放 TTS）。本文区分实测结果、历史记录与未验证项。
 

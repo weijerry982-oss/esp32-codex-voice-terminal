@@ -1,10 +1,11 @@
 # 调试与变更日志
 
-本文件用于补充当前工作区**没有 Git 元数据**时的可追溯记录。它不是 Git 的替代品：无法还原任意历史版本或做自动 diff。建议在方便时初始化 Git 并对当前状态做首次提交。
+本文件补充 Git 之外的人工可追溯记录。Git 已初始化（`main`），初始基线提交见 `git log`；以后每次改动可正常 diff/提交。运行日志和本地配置仍被 `.gitignore` 排除。
 
 ## 当前环境
 
 - 日期：2026-10-18
+- 版本控制：Git，`main` 分支；初始基线已提交
 - 设备：ESP32-S3 N16R8，COM6，FQBN `esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi`
 - 设备地址：192.168.2.78（本地 DHCP）
 - PC 服务：`http://192.168.2.72:8765`，`task_backend=chatgpt`
@@ -57,6 +58,12 @@ Status: RUNNING
 
 ## 2026-10-18 变更与实测记录
 
+### Git 基线
+
+- 初始化 Git（`main`），初始提交 `2acb09d`，共 40 个项目文件。
+- `wifi_config.h`、`voice_config.h`、`lan_config.h`、`config.local.json`、`host/python/data/` 均未进入提交；示例配置只含占位值或局域网地址。
+- 首次提交包含 `docs/OLED` 与 `docs/主控资料` 下的 PDF；仓库约 54 MB，后续推送到远端时注意大文件。
+
 ### 服务端
 
 - 修复 ChatGPT 应用关闭时的未捕获 UIA 异常：`create_pending_task()` 将草稿写入失败统一映射为 `chatgpt_unavailable`，HTTP 返回 503；修复前为空回复/HTTP 000。
@@ -91,7 +98,7 @@ Status: RUNNING
 - 待确认页摘要与提示页交替、二次确认行为。
 - 长时间运行稳定性（复位、死锁、任务泄漏）。
 - 安全边界：当前为明文 HTTP + 来源 IP 允许列表，没有 TLS、设备令牌或 HMAC；仅适用于受信局域网。生产加固需要 TLS（或加密隧道）和设备级认证。
-- 工作区没有 `.git`：无法做历史 diff；建议初始化 Git 并提交当前状态，同时保留本日志。
+- Git 已初始化（`main`），初始基线已提交；后续改动请继续小步提交，便于 diff。
 - 之前一次工具输出意外带出 Wi-Fi 凭据；建议更换密码并更新本地配置。本日志不复述凭据。
 
 ## 追加模板
