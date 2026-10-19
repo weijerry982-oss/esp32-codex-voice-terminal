@@ -72,6 +72,7 @@ constexpr unsigned long CONNECT_RETRY_DELAY_MS = 5000UL;
 constexpr uint8_t MAX_CONNECT_ATTEMPTS = 3;
 constexpr unsigned long RECONNECT_INTERVAL_MS = 10000UL;
 constexpr unsigned long TASK_TTL_MS = 55000UL;
+constexpr unsigned long RUNNING_TIMEOUT_MS = 300000UL;
 constexpr unsigned long POLL_INTERVAL_MS = 3000UL;
 constexpr unsigned long ANSWER_SCREEN_HOLD_MS = 10000UL;
 constexpr unsigned long PROMPT_PAGE_INTERVAL_MS = 2000UL;
@@ -1297,6 +1298,14 @@ void loop() {
     String body;
     const int code = fetchTaskStatus(pendingTaskId, status, body);
     Serial.printf("Poll HTTP %d: status=%s\n", code, status.c_str());
+    if (code == HTTP_CODE_NOT_FOUND) {
+      taskState = TaskState::ERROR;
+      showStatus("LOST");
+      Serial.println("Task: service no longer knows this task; clearing.");
+      delay(2000);
+      clearTask();
+      return;
+    }
     if (code != HTTP_CODE_OK) {
       Serial.printf("Poll body: %s\n", body.c_str());
     } else if (status == "done") {
@@ -1336,6 +1345,15 @@ void loop() {
     } else {
       showWaiting();
     }
+  }
+
+  if (taskState == TaskState::RUNNING && waitStartedMs != 0 &&
+      millis() - waitStartedMs >= RUNNING_TIMEOUT_MS) {
+    showStatus("TIMEOUT");
+    Serial.println("Task: running wait timed out; clearing.");
+    delay(2000);
+    clearTask();
+    return;
   }
 
   if (digitalRead(VOICE_KEY_PIN) == LOW) {
@@ -1406,6 +1424,11 @@ void loop() {
             showStatus("BUSY");
             delay(2000);
             taskState = TaskState::IDLE;
+            showIdle();
+          } else if (code < 0) {
+            drawLines("SERVICE OFFLINE", "CHECK PC", "TRY AGAIN");
+            Serial.println("Task: service unreachable.");
+            delay(2000);
             showIdle();
           } else {
             taskState = TaskState::ERROR;
