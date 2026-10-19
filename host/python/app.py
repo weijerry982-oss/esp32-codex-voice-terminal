@@ -228,7 +228,8 @@ def run_powershell(script: Path, arguments: list[str], timeout_s: int) -> str:
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"PowerShell exited with {result.returncode}")
+        detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+        raise RuntimeError(detail or f"PowerShell exited with {result.returncode}")
     return result.stdout.lstrip("\ufeff").strip()
 
 

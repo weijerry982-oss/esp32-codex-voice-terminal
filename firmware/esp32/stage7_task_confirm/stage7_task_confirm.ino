@@ -1425,6 +1425,11 @@ void loop() {
             delay(2000);
             taskState = TaskState::IDLE;
             showIdle();
+          } else if (code == HTTP_CODE_SERVICE_UNAVAILABLE) {
+            drawLines("CHATGPT OFFLINE", "OPEN CHAT VIEW", "TRY AGAIN");
+            Serial.println("Task: ChatGPT draft unavailable; open the ChatGPT chat view.");
+            delay(2000);
+            showIdle();
           } else if (code < 0) {
             drawLines("SERVICE OFFLINE", "CHECK PC", "TRY AGAIN");
             Serial.println("Task: service unreachable.");

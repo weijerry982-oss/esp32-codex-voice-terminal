@@ -115,6 +115,8 @@ Status: RUNNING
 - 重新启动服务（PID 6308，health 200）。新增可选 `host/python/run_service.ps1`：在普通终端运行时会循环启动服务，服务退出 2 秒后重启；本轮未把它作为常驻守护进程。
 - 固件新增错误恢复：任务 404 显示 `LOST` 并清空；RUNNING 超过 5 分钟显示 `TIMEOUT`；上传时服务不可达显示 `SERVICE OFFLINE`。编译 1,004,351 字节，烧录成功，设备在线。
 - 待查：服务进程退出的具体原因（日志无 traceback）；task `822359` 的 ChatGPT 回答为何未被捕获。
+- 10:00 新录音“你好你好”在服务端 ASR 成功，但 `chatgpt_set_draft.ps1` 失败，服务返回 503。UIA 检查发现 ChatGPT 窗口停在 Codex 视图，`EDITS=0`、`PROSEMIRROR=0`，没有可写的 ChatGPT 输入框；设备把 503 显示成了 TASK ERROR。
+- 服务重启后再次写入草稿成功；诊断 task `336964` 已取消。设备新增 503 提示 `CHATGPT OFFLINE / OPEN CHAT VIEW`；服务日志现在会记录 PowerShell 的具体错误文本。
 
 ## 追加模板
 
