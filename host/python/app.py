@@ -17,6 +17,7 @@ import ipaddress
 import json
 import logging
 import math
+import os
 import random
 import re
 import struct
@@ -31,6 +32,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+# The model is cached locally; avoid a HuggingFace network check on LAN-only setups.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "bind_host": "127.0.0.1",

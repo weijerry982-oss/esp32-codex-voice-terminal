@@ -118,6 +118,14 @@ Status: RUNNING
 - 10:00 新录音“你好你好”在服务端 ASR 成功，但 `chatgpt_set_draft.ps1` 失败，服务返回 503。UIA 检查发现 ChatGPT 窗口停在 Codex 视图，`EDITS=0`、`PROSEMIRROR=0`，没有可写的 ChatGPT 输入框；设备把 503 显示成了 TASK ERROR。
 - 服务重启后再次写入草稿成功；诊断 task `336964` 已取消。设备新增 503 提示 `CHATGPT OFFLINE / OPEN CHAT VIEW`；服务日志现在会记录 PowerShell 的具体错误文本。
 
+## 2026-10-30 更换 Wi-Fi
+
+- 新路由器 2.4G SSID 为 `ChinaUnicom-Nubc`；电脑在 5G `ChinaUnicom-Nubc-5G`，电脑 IP `192.168.86.5`。
+- 更新设备 `wifi_config.h` 和 `voice_config.h`（服务地址改为 `http://192.168.86.5:8765`），重新编译烧录；设备连接成功，IP `192.168.86.6`，服务允许列表已更新为该 IP。
+- 串口在 Wi-Fi 连接阶段多次出现 `Brownout detector was triggered` 和 `TG1WDT_SYS_RST`，随后才连接成功；这是供电问题，建议两路 Type-C 同时供电或使用更强的 5V 电源。
+- 新网络访问 HuggingFace 超时，Whisper 模型加载卡住；模型已缓存，`app.py` 和 `run_service.ps1` 已改为 `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` 离线加载。服务 PID `18864`，health 200。
+- Wi-Fi 密码只写入本地 gitignored 配置，未进入 Git，也不在本日志中记录。
+
 ## 追加模板
 
 ```text

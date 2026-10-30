@@ -3,6 +3,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:HF_HUB_OFFLINE = "1"
+$env:TRANSFORMERS_OFFLINE = "1"
 $python = "C:\Users\jerry\AppData\Local\Programs\Python\Python312\python.exe"
 $app = Join-Path $PSScriptRoot "app.py"
 $configPath = Join-Path $PSScriptRoot $Config
